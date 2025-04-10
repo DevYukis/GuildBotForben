@@ -1,0 +1,15 @@
+{
+  "name": "guild-bot",
+  "version": "1.0.0",
+  "description": "Bot para gerenciar Clans no Discord",
+  "main": "bot.js",
+  "type": "module",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.0.0",
+    "guild-bot": "file:"
+  }
+}
