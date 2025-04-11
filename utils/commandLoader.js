@@ -23,22 +23,21 @@ export const loadCommands = async (client) => {
     try {
       const command = await import(`file://${filePath}`);
 
-      if (command.default?.data) {
+      if (command.default?.data && typeof command.default.execute === "function") {
         // Adiciona o comando à coleção e à lista de comandos
         client.commands.set(command.default.data.name, command.default);
         commands.push(command.default.data.toJSON());
-      } else if (command.default?.name) {
-        // Adiciona comandos que possuem apenas a propriedade 'name'
-        client.commands.set(command.default.name, command.default);
-      } else if (file === "bot-teste.js") {
-        console.warn(`⚠️ O comando 'bot-teste' foi encontrado, mas está com estrutura inválida.`);
+        console.log(`✅ Comando carregado: ${command.default.data.name}`);
       } else {
-        console.warn(`⚠️ O comando no arquivo '${file}' não possui uma propriedade 'data' ou 'name'.`);
+        console.warn(
+          `⚠️ O comando no arquivo '${file}' não possui uma estrutura válida. Certifique-se de que ele exporta 'data' e 'execute'.`
+        );
       }
     } catch (error) {
-      console.error(`❌ Erro ao carregar o comando '${file}':`, error);
+      console.error(`❌ Erro ao carregar o comando '${file}':`, error.message);
     }
   }
 
+  console.log(`✅ ${commands.length} comandos carregados com sucesso.`);
   return commands;
 };

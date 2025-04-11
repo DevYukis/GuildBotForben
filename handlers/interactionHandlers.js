@@ -1,5 +1,6 @@
 import { createClanModal, editClanModal, deleteClanModal } from "../utils/modalBuilders.js";
-import { loadClans, saveClans, getCategoryChannelId, createClanResources, deleteClanResources, saveMemberJoinDate } from "../utils/clanUtils.js";
+import { loadClans, saveClans, getCategoryChannelId, createClanResources, deleteClanResources, saveMemberJoinDate, updateClanVoiceChannelName } from "../utils/clanUtils.js";
+import { loadInvites, saveInvites } from "../utils/inviteUtils.js";
 import {
   ActionRowBuilder,
   StringSelectMenuBuilder,
@@ -8,6 +9,7 @@ import {
   TextInputStyle,
   ButtonBuilder,
   ButtonStyle,
+  EmbedBuilder,
 } from "discord.js";
 
 const clans = loadClans();
@@ -97,40 +99,109 @@ export const handleInteraction = async (interaction) => {
       }
       return await interaction.showModal(modal);
     } else if (interaction.customId.startsWith("accept_clan_invite_")) {
-      const inviterId = interaction.customId.split("_").pop();
-      const clan = clans.get(inviterId);
+      const invites = loadInvites();
+      const inviteData = invites.get(interaction.customId);
 
-      if (!clan) {
-        return await interaction.reply({
-          content: "⚠️ O Clan não existe mais.",
-          flags: 64,
-        });
+      if (!inviteData) {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({
+            content: "⚠️ O convite não foi encontrado. Ele pode ter expirado ou sido removido.",
+            flags: 64,
+          });
+        }
+        return;
       }
 
+      const { guildId, leaderId, memberId } = inviteData;
+
+      // Buscar o servidor pelo ID
+      let guild = interaction.client.guilds.cache.get(guildId);
+
+      if (!guild) {
+        try {
+          guild = await interaction.client.guilds.fetch(guildId);
+        } catch (error) {
+          console.error(`[ERRO] Não foi possível buscar o servidor: ${error}`);
+          if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({
+              content: "⚠️ O servidor associado ao convite não foi encontrado.",
+              flags: 64,
+            });
+          }
+          return;
+        }
+      }
+
+      const clans = loadClans(); // Carregar os Clans do armazenamento
+      const clan = clans.get(leaderId); // Buscar o Clan pelo ID do líder
+
+      if (!clan) {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({
+            content: "⚠️ O Clan associado ao convite não foi encontrado.",
+            flags: 64,
+          });
+        }
+        return;
+      }
+
+      // Adicionar o membro ao Clan
       if (!Array.isArray(clan.members)) {
         clan.members = [];
       }
 
-      clan.members.push(interaction.user.id);
-      saveMemberJoinDate(clans, inviterId, interaction.user.id); // Save join date
-      saveClans(clans);
+      if (!clan.members.includes(memberId)) {
+        clan.members.push(memberId);
+        saveClans(clans);
 
-      const guild = interaction.guild;
+        // Remover o convite após ser aceito
+        invites.delete(interaction.customId);
+        saveInvites(invites);
+      }
+
       const role = guild.roles.cache.get(clan.roleId);
 
       if (role) {
-        for (const memberId of clan.members) {
-          const member = await guild.members.fetch(memberId).catch(() => null);
-          if (member) {
-            await member.roles.add(role).catch((error) => {
-              console.error(`[ERRO] Não foi possível adicionar o cargo ao membro ${memberId}: ${error}`);
+        try {
+          const member = await guild.members.fetch(memberId); // Buscar o membro no servidor
+          await member.roles.add(role); // Adicionar o cargo ao membro
+
+          // Enviar DM para o membro confirmando a entrada
+          await member.send(`✅ Você entrou no Clan **${clan.clanName}** no servidor **${guild.name}**!`);
+
+          // Enviar DM para o líder confirmando que o membro aceitou
+          const leader = await guild.members.fetch(leaderId);
+          await leader.send(`✅ O membro **${member.user.username}** aceitou o convite e agora faz parte do Clan **${clan.clanName}** no servidor **${guild.name}**.`);
+
+          if (!interaction.replied && !interaction.deferred) {
+            return await interaction.reply({
+              content: `✅ Você aceitou o convite e agora faz parte do Clan **${clan.clanName}** no servidor **${guild.name}**!`,
+              flags: 64,
+            });
+          }
+        } catch (error) {
+          console.error(`[ERRO] Não foi possível adicionar o cargo ao membro: ${error}`);
+          if (!interaction.replied && !interaction.deferred) {
+            return await interaction.reply({
+              content: "⚠️ Ocorreu um erro ao adicionar você ao Clan. Por favor, tente novamente mais tarde.",
+              flags: 64,
             });
           }
         }
+      } else {
+        if (!interaction.replied && !interaction.deferred) {
+          return await interaction.reply({
+            content: "⚠️ O cargo do Clan não foi encontrado. Por favor, informe o líder do Clan.",
+            flags: 64,
+          });
+        }
       }
+    } else if (interaction.customId.startsWith("decline_clan_invite_")) {
+      const [_, guildId, leaderId, memberId] = interaction.customId.split("_"); // Extrair IDs do customId
 
+      // Enviar mensagem de recusa
       return await interaction.reply({
-        content: `✅ Você entrou no Clan **${clan.clanName}**!`,
+        content: "❌ Você recusou o convite para entrar no Clan.",
         flags: 64,
       });
     } else if (interaction.customId === "edit_members_button") {
@@ -176,10 +247,10 @@ export const handleInteraction = async (interaction) => {
           .addComponents(
             new ActionRowBuilder().addComponents(
               new TextInputBuilder()
-                .setCustomId("member_id_input")
-                .setLabel("ID do Membro")
+                .setCustomId("member_name_input")
+                .setLabel("Nome do Membro")
                 .setStyle(TextInputStyle.Short)
-                .setPlaceholder("Digite o ID do membro a ser adicionado")
+                .setPlaceholder("Digite o nome do membro a ser adicionado")
                 .setRequired(true)
             )
           );
@@ -226,8 +297,18 @@ export const handleInteraction = async (interaction) => {
       const guild = interaction.guild;
 
       try {
-        // Use the utility function to create the role and channel
-        const { roleId, channelId } = await createClanResources(guild, clanName, interaction.user.id);
+        // Use a função utilitária para criar os recursos do Clan
+        const { roleId, textChannelId, voiceChannelId } = await createClanResources(
+          guild,
+          clanName,
+          interaction.user.id
+        );
+
+        // Atribuir o cargo ao líder do Clan
+        const leader = await guild.members.fetch(interaction.user.id);
+        if (leader) {
+          await leader.roles.add(roleId);
+        }
 
         const newClan = {
           leaderId: interaction.user.id,
@@ -236,14 +317,15 @@ export const handleInteraction = async (interaction) => {
           clanDescription,
           members: [interaction.user.id],
           roleId,
-          channelId,
+          textChannelId,
+          voiceChannelId,
         };
 
         clans.set(interaction.user.id, newClan);
         saveClans(clans);
 
         return await interaction.reply({
-          content: `✅ Clan **${clanName}** criado com sucesso! Um canal e um cargo foram criados.`,
+          content: `✅ Clan **${clanName}** criado com sucesso! Um canal, um cargo e um canal de voz foram criados. O cargo foi atribuído a você.`,
           flags: 64,
         });
       } catch (error) {
@@ -256,7 +338,7 @@ export const handleInteraction = async (interaction) => {
     }
 
     if (interaction.customId === "add_member_modal") {
-      const memberId = interaction.fields.getTextInputValue("member_id_input");
+      const memberInput = interaction.fields.getTextInputValue("member_name_input"); // Entrada do usuário
       const clan = Array.from(clans.values()).find((clan) => clan.leaderId === userId);
 
       if (!clan) {
@@ -270,13 +352,6 @@ export const handleInteraction = async (interaction) => {
         clan.members = [];
       }
 
-      if (clan.members.includes(memberId)) {
-        return await interaction.reply({
-          content: "⚠️ Este membro já faz parte do seu Clan.",
-          flags: 64,
-        });
-      }
-
       try {
         const guild = interaction.guild;
         const role = guild.roles.cache.get(clan.roleId);
@@ -288,33 +363,68 @@ export const handleInteraction = async (interaction) => {
           });
         }
 
-        const member = await guild.members.fetch(memberId);
+        // Buscar membro pelo ID, nome de usuário ou nome de exibição
+        const member = await guild.members.fetch({ query: memberInput, limit: 1 }).then((members) => {
+          return (
+            members.get(memberInput) || // Buscar por ID
+            members.find((m) => m.user.username === memberInput) || // Buscar por nome de usuário
+            members.find((m) => m.displayName === memberInput) // Buscar por nome de exibição
+          );
+        });
+
         if (!member) {
           return await interaction.reply({
-            content: "⚠️ Membro não encontrado no servidor.",
+            content: "⚠️ Membro não encontrado no servidor. Certifique-se de usar o ID, nome de usuário ou nome de exibição correto.",
             flags: 64,
           });
         }
 
-        await member.roles.add(role);
-        clan.members.push(memberId);
-        saveClans(clans);
+        if (clan.members.includes(member.id)) {
+          return await interaction.reply({
+            content: "⚠️ Este membro já faz parte do seu Clan.",
+            flags: 64,
+          });
+        }
 
-        const embed = {
-          color: 0x800080, // Purple color
-          title: "Você foi adicionado a um Clan!",
-          description: `✅ Você agora faz parte do Clan **${clan.clanName}**!`,
-          fields: [
+        // Criar botão de "Aceitar" e "Recusar"
+        const customId = `accept_clan_invite_${interaction.guild.id}_${interaction.user.id}_${member.id}`;
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(customId) // Inclui o ID do servidor, líder e membro
+            .setLabel("Aceitar")
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`decline_clan_invite_${interaction.guild.id}_${interaction.user.id}_${member.id}`)
+            .setLabel("Recusar")
+            .setStyle(ButtonStyle.Danger)
+        );
+
+        // Criar embed para a mensagem na DM
+        const embed = new EmbedBuilder()
+          .setTitle("📢 Convite para entrar no Clan!")
+          .setColor(0x3498db) // Azul
+          .setDescription(`Você foi convidado para o Clan **${clan.clanName}** no servidor **${guild.name}**.`)
+          .addFields(
             { name: "Clan", value: clan.clanName, inline: true },
             { name: "Servidor", value: guild.name, inline: true },
-          ],
-          timestamp: new Date(),
-        };
+            { name: "Descrição", value: clan.clanDescription || "Sem descrição.", inline: false }
+          )
+          .setTimestamp();
 
-        await member.send({ embeds: [embed] });
+        // Enviar mensagem na DM do membro
+        await member.send({
+          content: "Clique em um dos botões abaixo para aceitar ou recusar o convite.",
+          embeds: [embed],
+          components: [row],
+        });
+
+        // Salvar o convite no arquivo invites.json
+        const invites = loadInvites();
+        invites.set(customId, { guildId: interaction.guild.id, leaderId: interaction.user.id, memberId: member.id });
+        saveInvites(invites);
 
         return await interaction.reply({
-          content: `✅ O membro foi adicionado ao Clan **${clan.clanName}** com sucesso!`,
+          content: `✅ Convite enviado para o membro **${member.user.username}** na DM.`,
           flags: 64,
         });
       } catch (error) {
@@ -351,10 +461,16 @@ export const handleInteraction = async (interaction) => {
           await role.setName(formattedName);
         }
 
-        // Atualizar o nome do canal
-        const channel = guild.channels.cache.get(clan.channelId);
-        if (channel) {
-          await channel.setName(formattedName);
+        // Atualizar o nome do canal de texto
+        const textChannel = guild.channels.cache.get(clan.textChannelId);
+        if (textChannel) {
+          await textChannel.setName(formattedName);
+        }
+
+        // Atualizar o nome do canal de voz
+        const voiceChannel = guild.channels.cache.get(clan.voiceChannelId);
+        if (voiceChannel) {
+          await voiceChannel.setName(formattedName);
         }
 
         // Atualizar os dados do clan
@@ -363,8 +479,11 @@ export const handleInteraction = async (interaction) => {
         clan.clanDescription = clanDescription;
         saveClans(clans);
 
+        // Atualizar o nome do canal de voz usando a função utilitária
+        await updateClanVoiceChannelName(guild, clan);
+
         await interaction.editReply({
-          content: `✅ Clan **${clanName}** editado com sucesso! O nome do canal e do cargo foram atualizados.`,
+          content: `✅ Clan **${clanName}** editado com sucesso! O nome do canal de texto, canal de voz e do cargo foram atualizados.`,
         });
       } catch (error) {
         console.error("Erro ao atualizar os recursos do Clan:", error);
@@ -385,15 +504,39 @@ export const handleInteraction = async (interaction) => {
       const clan = clans.get(userId);
 
       try {
-        // Ensure the deleteClanResources function deletes the clan's chat and role
-        await deleteClanResources(interaction.guild, clan.clanName);
+        // Excluir os recursos do Clan (canais e cargo)
+        const guild = interaction.guild;
 
-        // Schedule deletion of clan data
+        // Excluir o canal de texto
+        const textChannel = guild.channels.cache.get(clan.textChannelId);
+        if (textChannel) {
+          await textChannel.delete().catch((error) => {
+            console.error(`[ERRO] Não foi possível excluir o canal de texto: ${error}`);
+          });
+        }
+
+        // Excluir o canal de voz
+        const voiceChannel = guild.channels.cache.get(clan.voiceChannelId);
+        if (voiceChannel) {
+          await voiceChannel.delete().catch((error) => {
+            console.error(`[ERRO] Não foi possível excluir o canal de voz: ${error}`);
+          });
+        }
+
+        // Excluir o cargo
+        const role = guild.roles.cache.get(clan.roleId);
+        if (role) {
+          await role.delete().catch((error) => {
+            console.error(`[ERRO] Não foi possível excluir o cargo: ${error}`);
+          });
+        }
+
+        // Remover o Clan do armazenamento
         clans.delete(userId);
         saveClans(clans);
 
         return await interaction.reply({
-          content: "✅ Seu Clan foi excluído com sucesso!",
+          content: "✅ Seu Clan foi excluído com sucesso! Todos os recursos associados foram removidos.",
           flags: 64,
         });
       } catch (error) {
@@ -404,7 +547,7 @@ export const handleInteraction = async (interaction) => {
         });
       }
     } else if (interaction.customId === "remove_member_modal") {
-      const memberId = interaction.fields.getTextInputValue("member_id_input");
+      const memberInput = interaction.fields.getTextInputValue("member_id_input"); // Entrada do usuário
       const clan = Array.from(clans.values()).find((clan) => clan.leaderId === userId);
 
       if (!clan) {
@@ -414,15 +557,36 @@ export const handleInteraction = async (interaction) => {
         });
       }
 
-      if (!Array.isArray(clan.members) || !clan.members.includes(memberId)) {
-        return await interaction.reply({
-          content: "⚠️ Este membro não faz parte do seu Clan.",
-          flags: 64,
-        });
+      if (!Array.isArray(clan.members)) {
+        clan.members = [];
       }
 
       try {
         const guild = interaction.guild;
+
+        // Buscar membro pelo ID, nome de usuário ou nome de exibição
+        const member = await guild.members.fetch({ query: memberInput, limit: 1 }).then((members) => {
+          return (
+            members.get(memberInput) || // Buscar por ID
+            members.find((m) => m.user.username === memberInput) || // Buscar por nome de usuário
+            members.find((m) => m.displayName === memberInput) // Buscar por nome de exibição
+          );
+        });
+
+        if (!member) {
+          return await interaction.reply({
+            content: "⚠️ Membro não encontrado no servidor. Certifique-se de usar o ID, nome de usuário ou nome de exibição correto.",
+            flags: 64,
+          });
+        }
+
+        if (!clan.members.includes(member.id)) {
+          return await interaction.reply({
+            content: "⚠️ Este membro não faz parte do seu Clan.",
+            flags: 64,
+          });
+        }
+
         const role = guild.roles.cache.get(clan.roleId);
 
         if (!role) {
@@ -432,22 +596,16 @@ export const handleInteraction = async (interaction) => {
           });
         }
 
-        const member = await guild.members.fetch(memberId).catch(() => null);
-        if (!member) {
-          return await interaction.reply({
-            content: "⚠️ Membro não encontrado no servidor.",
-            flags: 64,
-          });
-        }
-
+        // Remover o cargo do membro
         await member.roles.remove(role);
-        clan.members = clan.members.filter((id) => id !== memberId);
+        clan.members = clan.members.filter((id) => id !== member.id);
         saveClans(clans);
 
+        // Enviar DM para o membro informando que ele foi removido
         await member.send(`⚠️ Você foi removido do Clan **${clan.clanName}**.`);
 
         return await interaction.reply({
-          content: `✅ O membro foi removido do Clan **${clan.clanName}** com sucesso!`,
+          content: `✅ O membro **${member.user.username}** foi removido do Clan **${clan.clanName}** com sucesso!`,
           flags: 64,
         });
       } catch (error) {

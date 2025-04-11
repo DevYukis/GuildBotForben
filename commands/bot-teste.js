@@ -1,10 +1,18 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from "discord.js";
-import { loadClans, saveClans, createClanResources, deleteClanResources, restoreDeletedClan } from "../utils/clanUtils.js";
+import {
+  loadClans,
+  saveClans,
+  createClanResources,
+  deleteClanResources,
+  restoreDeletedClan,
+  getCategoryChannelId,
+} from "../utils/clanUtils.js";
+import fs from "fs";
 
 export default {
   data: new SlashCommandBuilder()
     .setName("bot-teste")
-    .setDescription("Testa as principais funções do bot para verificar se estão funcionando corretamente.")
+    .setDescription("Testa todas as funções principais do bot para verificar se estão funcionando corretamente.")
     .setDefaultPermission(true),
 
   async execute(interaction) {
@@ -21,7 +29,7 @@ export default {
       .setDescription("Verificando as principais funções do bot...");
 
     try {
-      // Test loadClans and saveClans
+      // Teste de carregar e salvar Clans
       const clans = loadClans();
       const testClanId = "test_clan_id";
       const testClan = {
@@ -31,7 +39,8 @@ export default {
         clanDescription: "Clan de teste",
         members: ["test_leader_id"],
         roleId: "test_role_id",
-        channelId: "test_channel_id",
+        textChannelId: "test_text_channel_id",
+        voiceChannelId: "test_voice_channel_id",
       };
       clans.set(testClanId, testClan);
       saveClans(clans);
@@ -44,14 +53,44 @@ export default {
 
       embed.addFields({ name: "Clans", value: "✅ Carregar e salvar Clans funcionando." });
 
-      // Test createClanResources and deleteClanResources
+      // Teste de criar e deletar recursos de Clan
       const guild = interaction.guild;
-      const { roleId, channelId } = await createClanResources(guild, "Test Clan", interaction.user.id);
-      await deleteClanResources(guild, "Test Clan");
+      const { roleId, textChannelId, voiceChannelId } = await createClanResources(
+        guild,
+        "Test Clan",
+        interaction.user.id
+      );
+
+      // Deletar o canal de texto diretamente
+      const textChannel = guild.channels.cache.get(textChannelId);
+      if (textChannel) {
+        await textChannel.delete().catch((error) => {
+          console.error(`[ERRO] Não foi possível excluir o canal de texto: ${error}`);
+          throw new Error("Falha ao deletar o canal de texto.");
+        });
+      }
+
+      // Deletar o canal de voz diretamente
+      const voiceChannel = guild.channels.cache.get(voiceChannelId);
+      if (voiceChannel) {
+        await voiceChannel.delete().catch((error) => {
+          console.error(`[ERRO] Não foi possível excluir o canal de voz: ${error}`);
+          throw new Error("Falha ao deletar o canal de voz.");
+        });
+      }
+
+      // Deletar o cargo diretamente
+      const role = guild.roles.cache.get(roleId);
+      if (role) {
+        await role.delete().catch((error) => {
+          console.error(`[ERRO] Não foi possível excluir o cargo: ${error}`);
+          throw new Error("Falha ao deletar o cargo.");
+        });
+      }
 
       embed.addFields({ name: "Recursos de Clan", value: "✅ Criar e deletar recursos de Clan funcionando." });
 
-      // Test restoreDeletedClan
+      // Teste de restaurar Clan deletado
       const deletedClan = {
         leaderId: "test_leader_id",
         clanName: "Deleted Test Clan",
@@ -59,10 +98,10 @@ export default {
         clanDescription: "Clan deletado de teste",
         members: ["test_leader_id"],
         roleId: "test_role_id",
-        channelId: "test_channel_id",
+        textChannelId: "test_text_channel_id",
+        voiceChannelId: "test_voice_channel_id",
       };
       const deletedClansPath = "data/deletedClans.json";
-      const fs = require("fs");
       const deletedClans = fs.existsSync(deletedClansPath)
         ? JSON.parse(fs.readFileSync(deletedClansPath, "utf-8"))
         : [];
@@ -75,7 +114,25 @@ export default {
 
       embed.addFields({ name: "Restaurar Clan", value: "✅ Restaurar Clan deletado funcionando." });
 
-      // Finalize the test
+      // Teste de obter ID da categoria
+      const categoryId = getCategoryChannelId();
+      if (!categoryId) {
+        throw new Error("Falha ao obter o ID da categoria de Clans.");
+      }
+      embed.addFields({ name: "Categoria de Clans", value: `✅ ID da categoria obtido: ${categoryId}` });
+
+      // Teste de manipulação de arquivos
+      const testFilePath = "data/test.json";
+      const testData = { key: "value" };
+      fs.writeFileSync(testFilePath, JSON.stringify(testData, null, 2));
+      const loadedData = JSON.parse(fs.readFileSync(testFilePath, "utf-8"));
+      if (loadedData.key !== "value") {
+        throw new Error("Falha ao manipular arquivos.");
+      }
+      fs.unlinkSync(testFilePath); // Remove o arquivo de teste
+      embed.addFields({ name: "Manipulação de Arquivos", value: "✅ Manipulação de arquivos funcionando." });
+
+      // Finaliza o teste com sucesso
       embed.setColor(0x00ff00).setDescription("✅ Todos os testes foram concluídos com sucesso!");
     } catch (error) {
       console.error("[ERRO] Teste de funcionalidades falhou:", error);

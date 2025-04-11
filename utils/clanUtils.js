@@ -54,140 +54,106 @@ export const getPendingInvite = (userId) => {
 };
 
 /**
- * Creates a role and a channel for a clan.
+ * Creates a role, text channel, and voice channel for a clan.
  * @param {Object} guild - The Discord guild (server).
  * @param {string} clanName - The name of the clan.
  * @param {string} leaderId - The ID of the clan leader.
- * @returns {Object} An object containing the role and channel IDs.
+ * @returns {Object} An object containing the role, text channel, and voice channel IDs.
  */
 export const createClanResources = async (guild, clanName, leaderId) => {
+  const formattedName = `《👥》${clanName}`;
+
+  // Carregar o ID da categoria do arquivo channels.json
+  const channelsConfigPath = path.resolve("data", "channels.json");
+  const channelsConfig = JSON.parse(fs.readFileSync(channelsConfigPath, "utf8"));
+  const categoryId = channelsConfig.Clan_category;
+
+  if (!categoryId) {
+    throw new Error("ID da categoria do Clan não encontrado em channels.json.");
+  }
+
   try {
-    // Create a role for the clan
+    // Criar o cargo do Clan
     const role = await guild.roles.create({
-      name: `Clan ${clanName}`,
-      color: "#3498db",
+      name: formattedName,
       mentionable: true,
-      reason: `Role criado para o Clan ${clanName}`,
+      reason: `Cargo criado para o Clan ${clanName}`,
     });
 
-    // Assign the role to the clan leader
-    const leader = await guild.members.fetch(leaderId);
-    if (leader) {
-      await leader.roles.add(role, `Líder do Clan ${clanName} recebeu o cargo.`);
-    }
-
-    // Get the category channel ID for clans
-    const categoryChannelId = getCategoryChannelId();
-    const parent = categoryChannelId ? guild.channels.cache.get(categoryChannelId) : null;
-
-    // Create a text channel for the clan
-    const channel = await guild.channels.create({
-      name: `《👥》${clanName}`, // Set the channel name format
-      type: 0, // GuildText
-      parent: parent?.id || null,
+    // Criar o canal de texto do Clan
+    const textChannel = await guild.channels.create({
+      name: formattedName,
+      type: 0, // Canal de texto
+      parent: categoryId, // Definir a categoria
+      reason: `Canal de texto criado para o Clan ${clanName}`,
       permissionOverwrites: [
         {
           id: guild.roles.everyone.id,
-          deny: ["ViewChannel"], // Deny access to everyone
+          deny: ['ViewChannel'],
         },
         {
           id: role.id,
-          allow: ["ViewChannel", "SendMessages"], // Allow clan members to view and send messages
-        },
-        {
-          id: leaderId,
-          allow: ["ManageChannels", "ManageRoles", "SendMessages"], // Grant leader additional permissions
+          allow: ['ViewChannel', 'SendMessages'],
         },
       ],
-      reason: `Canal criado para o Clan ${clanName}`,
     });
 
-    return { roleId: role.id, channelId: channel.id };
+    // Criar o canal de voz do Clan
+    const voiceChannel = await guild.channels.create({
+      name: formattedName,
+      type: 2, // Canal de voz
+      parent: categoryId, // Definir a categoria
+      reason: `Canal de voz criado para o Clan ${clanName}`,
+      permissionOverwrites: [
+        {
+          id: guild.roles.everyone.id,
+          deny: ['ViewChannel'],
+        },
+        {
+          id: role.id,
+          allow: ['ViewChannel', 'Connect', 'Speak'],
+        },
+      ],
+    });
+
+    return {
+      roleId: role.id,
+      textChannelId: textChannel.id,
+      voiceChannelId: voiceChannel.id,
+    };
   } catch (error) {
-    console.error("Erro ao criar os recursos do Clan:", error);
-    throw new Error("Erro ao criar os recursos do Clan.");
+    console.error(`[ERRO] Falha ao criar recursos do Clan ${clanName}:`, error);
+    throw error;
   }
 };
 
-// Temporarily disable saveDeletedClan
-// const saveDeletedClan = (clan) => {
-//   try {
-//     let deletedClans = [];
-//     if (fs.existsSync(deletedClansFilePath)) {
-//       const data = fs.readFileSync(deletedClansFilePath, "utf-8");
-//       deletedClans = JSON.parse(data || "[]");
-//     }
-//     deletedClans.push(clan);
-//     fs.writeFileSync(deletedClansFilePath, JSON.stringify(deletedClans, null, 2));
-//     console.log(`[LOG] Clan "${clan.clanName}" saved to deletedClans.json.`);
-//   } catch (error) {
-//     console.error("[ERRO] Não foi possível salvar o Clan deletado:", error);
-//   }
-// };
-
 export const deleteClanResources = async (guild, clanName) => {
+  const formattedName = `《👥》${clanName}`;
+
   try {
-    const clans = loadClans(); // Load the clans data
-
-    // Retrieve the clan by name at the start
-    const clan = Array.from(clans.values()).find((clan) => clan.clanName.toLowerCase() === clanName.toLowerCase());
-    if (!clan) {
-      console.warn(`[WARN] Clan "${clanName}" not found in data.`);
-      return;
-    }
-
-    let channelDeleted = false;
-    let roleDeleted = false;
-
-    // Attempt to delete the clan's channel using channelId
-    if (clan.channelId) {
-      const clanChannel = await guild.channels.fetch(clan.channelId).catch(() => null);
-      if (clanChannel) {
-        await clanChannel.delete(`Deleting clan channel for ${clanName}`);
-        console.log(`[LOG] Clan channel with ID "${clan.channelId}" deleted successfully.`);
-        channelDeleted = true;
-      } else {
-        console.warn(`[WARN] Clan channel with ID "${clan.channelId}" not found or already deleted.`);
-      }
-    }
-
-    // Fallback: Search for the channel by formatted name if not deleted
-    if (!channelDeleted) {
-      const formattedChannelName = `《👥》${clanName}`;
-      const clanChannel = guild.channels.cache.find(c => c.name.toLowerCase() === formattedChannelName.toLowerCase());
-      if (clanChannel) {
-        await clanChannel.delete(`Deleting clan channel for ${clanName}`);
-        console.log(`[LOG] Clan channel "${formattedChannelName}" deleted successfully.`);
-        channelDeleted = true;
-      } else {
-        console.warn(`[WARN] Clan channel "${formattedChannelName}" not found.`);
-      }
-    }
-
-    // Find and delete the role for the clan
-    const role = guild.roles.cache.find(r => r.name.toLowerCase() === `clan ${clanName.toLowerCase()}`);
+    // Excluir o cargo do Clan
+    const role = guild.roles.cache.find((r) => r.name === formattedName);
     if (role) {
-      await role.delete(`Role do Clan ${clanName} excluído.`);
-      console.log(`[LOG] Clan role "${clanName}" deleted successfully.`);
-      roleDeleted = true;
-    } else {
-      console.warn(`Role do Clan ${clanName} não encontrado.`);
+      await role.delete(`Cargo do Clan ${clanName} excluído.`);
     }
 
-    // Delay deletion of clan data by 1 minute if both channel and role are deleted successfully
-    if (channelDeleted && roleDeleted) {
-      console.log(`[LOG] Clan "${clanName}" data will be deleted in 1 minute.`);
-      setTimeout(() => {
-        saveDeletedClan(clan); // Save the deleted clan for rollback
-        clans.delete(clan.leaderId);
-        saveClans(clans);
-        console.log(`[LOG] Clan "${clanName}" data deleted successfully from clans.json.`);
-      }, 60000); // 1 minute delay
-    } else {
-      console.warn(`[WARN] Clan "${clanName}" data not deleted due to incomplete resource deletion.`);
+    // Excluir o canal de texto do Clan
+    const textChannel = guild.channels.cache.find(
+      (c) => c.name === formattedName && c.type === 0 // 0 = Canal de texto
+    );
+    if (textChannel) {
+      await textChannel.delete(`Canal de texto do Clan ${clanName} excluído.`);
+    }
+
+    // Excluir o canal de voz do Clan
+    const voiceChannel = guild.channels.cache.find(
+      (c) => c.name === formattedName && c.type === 2 // 2 = Canal de voz
+    );
+    if (voiceChannel) {
+      await voiceChannel.delete(`Canal de voz do Clan ${clanName} excluído.`);
     }
   } catch (error) {
-    console.error(`[ERRO] Failed to delete clan resources for "${clanName}":`, error);
+    console.error(`[ERRO] Falha ao excluir recursos do Clan ${clanName}:`, error);
     throw error;
   }
 };
@@ -235,3 +201,13 @@ export function saveMemberJoinDate(clans, clanId, memberId) {
 
   saveClans(clans);
 }
+
+export const updateClanVoiceChannelName = async (guild, clan) => {
+  const formattedName = `《👥》${clan.clanName}`;
+
+  // Atualizar o nome do canal de voz
+  const voiceChannel = guild.channels.cache.get(clan.voiceChannelId);
+  if (voiceChannel) {
+    await voiceChannel.setName(formattedName);
+  }
+};

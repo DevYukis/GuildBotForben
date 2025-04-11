@@ -12,13 +12,30 @@
   },
   "587633929721348137": {
     "leaderId": "587633929721348137",
-    "clanName": "Cuty",
-    "clanTag": "STAFF",
-    "clanDescription": "STAFF",
+    "clanName": "CUTY",
+    "clanTag": "CUTY",
+    "clanDescription": "CUTYCUTY",
     "members": [
-      "587633929721348137"
+      "587633929721348137",
+      "552149582281441293"
     ],
-    "roleId": "1359655825081241861",
-    "channelId": "1359655828382023760"
+    "roleId": "1360339992366289221",
+    "textChannelId": "1360339993070928115",
+    "voiceChannelId": "1360339999903584500",
+    "joinDates": {
+      "837548133763907604": "2025-04-11T20:02:56.237Z"
+    }
+  },
+  "test_leader_id": {
+    "leaderId": "test_leader_id",
+    "clanName": "Deleted Test Clan",
+    "clanTag": "DELTEST",
+    "clanDescription": "Clan deletado de teste",
+    "members": [
+      "test_leader_id"
+    ],
+    "roleId": "test_role_id",
+    "textChannelId": "test_text_channel_id",
+    "voiceChannelId": "test_voice_channel_id"
   }
 }
