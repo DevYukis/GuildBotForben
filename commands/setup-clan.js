@@ -53,6 +53,7 @@ export default {
         "📌 **Atenção:** Apenas líderes e membros com permissão de gerenciamento podem editar ou excluir o Clan.\n\n" +
         "━━━━━━━━━━━━━━━━━━━\n" +
         "⚔️ **Pronto para começar?**\n" +
+        "para gerenciar membros use o id ou nome real do discord.:\n" +
         "Use os botões abaixo para gerenciar seu Clan:\n" +
         "> `Criar Clan` | `Editar Clan` | `Excluir Clan` | `Editar Membros`",
       color: 0x9b59b6, // Cor roxa

@@ -580,6 +580,14 @@ export const handleInteraction = async (interaction) => {
           });
         }
 
+        // Verificar se o membro a ser removido é o líder
+        if (member.id === clan.leaderId) {
+          return await interaction.reply({
+            content: "⚠️ O líder do Clan não pode ser removido dos membros.",
+            flags: 64,
+          });
+        }
+
         if (!clan.members.includes(member.id)) {
           return await interaction.reply({
             content: "⚠️ Este membro não faz parte do seu Clan.",
