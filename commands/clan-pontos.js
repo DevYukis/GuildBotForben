@@ -32,11 +32,12 @@ export default {
       });
     }
 
-    const clans = loadClans();
+    const clans = await loadClans(); // Certifique-se de usar await para resolver a Promise
     const clanQuery = interaction.options.getString("clan");
     const points = interaction.options.getInteger("pontos") || 0;
     const coins = interaction.options.getInteger("moedas") || 0;
 
+    // Procura o Clan no Map
     const clan = Array.from(clans.values()).find(
       (c) =>
         c.clanName.toLowerCase() === clanQuery.toLowerCase() ||
@@ -50,10 +51,12 @@ export default {
       });
     }
 
+    // Atualiza os pontos e moedas do Clan
     clan.points = (clan.points || 0) + points;
     clan.coins = (clan.coins || 0) + coins;
 
-    saveClans(clans);
+    // Salva os Clans atualizados no banco de dados
+    await saveClans(clans);
 
     const embed = new EmbedBuilder()
       .setTitle("🏆 Pontos e Moedas Atualizados!")

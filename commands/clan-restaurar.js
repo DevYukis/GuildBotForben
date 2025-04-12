@@ -1,5 +1,7 @@
 import { SlashCommandBuilder, MessageFlags } from "discord.js";
-import { restoreDeletedClan, saveClans, createClanResources, loadClans } from "../utils/clanUtils.js";
+import DeletedClan from "../models/DeletedClan.js"; // Modelo para Clans deletados
+import Clan from "../models/Clan.js"; // Modelo para Clans ativos
+import { createClanResources } from "../utils/clanUtils.js";
 
 export default {
   data: new SlashCommandBuilder()
@@ -21,34 +23,47 @@ export default {
     }
 
     const clanName = interaction.options.getString("clan");
-    const deletedClan = restoreDeletedClan(clanName);
+
+    // Busca o Clan deletado no banco de dados
+    const deletedClan = await DeletedClan.findOne({ clanName });
 
     if (!deletedClan) {
       return await interaction.reply({
-        content: `⚠️ Não foi possível restaurar o Clan "${clanName}". Verifique se ele existe em deletedClans.json.`,
+        content: `⚠️ Não foi possível restaurar o Clan "${clanName}". Verifique se ele existe na lista de Clans deletados.`,
         flags: MessageFlags.Ephemeral,
       });
     }
 
-    const clans = loadClans();
-
     try {
-      // Recreate the role and channel for the clan
-      const { roleId, channelId } = await createClanResources(
+      // Recria os recursos do Clan (cargos e canais)
+      const { roleId, textChannelId, voiceChannelId } = await createClanResources(
         interaction.guild,
         deletedClan.clanName,
         deletedClan.leaderId
       );
 
-      // Update the clan data with the new role and channel IDs
-      deletedClan.roleId = roleId;
-      deletedClan.channelId = channelId;
+      // Atualiza os dados do Clan com os novos IDs de cargo e canais
+      const restoredClan = new Clan({
+        leaderId: deletedClan.leaderId,
+        clanName: deletedClan.clanName,
+        clanTag: deletedClan.clanTag,
+        clanDescription: deletedClan.clanDescription,
+        members: deletedClan.members,
+        roleId,
+        textChannelId,
+        voiceChannelId,
+        points: deletedClan.points || 0,
+        coins: deletedClan.coins || 0,
+        creationDate: deletedClan.creationDate || new Date(),
+      });
 
-      // Add the restored clan back to the clans list
-      clans.set(deletedClan.leaderId, deletedClan);
-      saveClans(clans);
+      // Salva o Clan restaurado no banco de dados
+      await restoredClan.save();
 
-      // Reassign the role to all members of the clan
+      // Remove o Clan da lista de Clans deletados
+      await DeletedClan.deleteOne({ _id: deletedClan._id });
+
+      // Reatribui o cargo aos membros do Clan
       const role = interaction.guild.roles.cache.get(roleId);
       if (role) {
         for (const memberId of deletedClan.members) {
@@ -62,7 +77,7 @@ export default {
       }
 
       await interaction.reply({
-        content: `✅ O Clan "${clanName}" foi restaurado com sucesso. O cargo e o canal foram recriados, e os membros receberam o cargo novamente.`,
+        content: `✅ O Clan "${clanName}" foi restaurado com sucesso. O cargo e os canais foram recriados, e os membros receberam o cargo novamente.`,
         flags: MessageFlags.Ephemeral,
       });
     } catch (error) {

@@ -1,45 +1,56 @@
 import fs from "fs";
 import path from "path";
+import Clan from "../models/Clan.js";
+import ChannelConfig from "../models/ChannelConfig.js"; // Modelo para configurações de canais
 
-const clansFilePath = path.resolve("data", "clans.json");
-const channelsFilePath = path.resolve("data", "channels.json");
 const deletedClansFilePath = path.resolve("data", "deletedClans.json");
 
-export const loadClans = () => {
-  if (fs.existsSync(clansFilePath)) {
-    try {
-      const data = fs.readFileSync(clansFilePath, "utf-8");
-      return new Map(Object.entries(JSON.parse(data || "{}")));
-    } catch (error) {
-      console.error("[ERRO] Não foi possível carregar o arquivo clans.json:", error);
-      return new Map();
-    }
-  }
-  return new Map();
+export const loadClans = async () => {
+  const clans = await Clan.find(); // Busca todos os Clans do banco de dados
+  return new Map(clans.map((clan) => [clan.leaderId, clan.toObject()])); // Converte para Map
 };
 
-export const saveClans = (clans) => {
-  if (!(clans instanceof Map)) {
-    console.error("[ERRO] O objeto 'clans' não é um Map válido.");
-    return;
+export const saveClans = async (clans) => {
+  for (const [leaderId, clanData] of clans.entries()) {
+    await Clan.findOneAndUpdate({ leaderId }, clanData, { upsert: true });
   }
+};
+
+/**
+ * Obtém o ID da categoria de Clans do banco de dados.
+ * @param {string} serverId - O ID do servidor.
+ * @returns {string|null} O ID da categoria ou null se não estiver configurado.
+ */
+export const getCategoryChannelId = async (serverId) => {
   try {
-    fs.writeFileSync(clansFilePath, JSON.stringify(Object.fromEntries(clans), null, 2));
+    const config = await ChannelConfig.findOne({ serverId });
+    return config?.clanCategoryId || null;
   } catch (error) {
-    console.error("[ERRO] Não foi possível salvar o arquivo clans.json:", error);
+    console.error(`[ERRO] Não foi possível carregar a categoria de Clans do banco de dados: ${error}`);
+    return null;
   }
 };
 
-export const getCategoryChannelId = () => {
-  if (fs.existsSync(channelsFilePath)) {
-    const data = JSON.parse(fs.readFileSync(channelsFilePath, "utf-8"));
-    return data.Clan_category || null;
+/**
+ * Salva o ID da categoria de Clans no banco de dados.
+ * @param {string} serverId - O ID do servidor.
+ * @param {string} categoryId - O ID da categoria.
+ */
+export const saveCategoryChannelId = async (serverId, categoryId) => {
+  try {
+    await ChannelConfig.findOneAndUpdate(
+      { serverId },
+      { $set: { clanCategoryId: categoryId } },
+      { upsert: true }
+    );
+    console.log(`[LOG] Categoria de Clans salva no banco de dados para o servidor ${serverId}.`);
+  } catch (error) {
+    console.error(`[ERRO] Não foi possível salvar a categoria de Clans no banco de dados: ${error}`);
   }
-  return null;
 };
 
-export const getClanByLeaderId = (leaderId) => {
-  const clans = loadClans();
+export const getClanByLeaderId = async (leaderId) => {
+  const clans = await loadClans();
   for (const [id, clan] of clans.entries()) {
     if (clan.leaderId === leaderId) {
       return clan;
@@ -48,70 +59,70 @@ export const getClanByLeaderId = (leaderId) => {
   return null;
 };
 
-export const getPendingInvite = (userId) => {
-  const clans = loadClans();
+export const getPendingInvite = async (userId) => {
+  const clans = await loadClans();
   return clans.get(userId)?.pendingInvite || null;
 };
 
 /**
- * Creates a role, text channel, and voice channel for a clan.
- * @param {Object} guild - The Discord guild (server).
- * @param {string} clanName - The name of the clan.
- * @param {string} leaderId - The ID of the clan leader.
- * @returns {Object} An object containing the role, text channel, and voice channel IDs.
+ * Cria os recursos de um Clan (cargo, canal de texto e canal de voz).
+ * @param {Object} guild - O servidor Discord.
+ * @param {string} clanName - O nome do Clan.
+ * @param {string} leaderId - O ID do líder do Clan.
+ * @returns {Object} IDs dos recursos criados.
  */
 export const createClanResources = async (guild, clanName, leaderId) => {
-  const formattedName = `《👥》${clanName}`;
-
-  // Carregar o ID da categoria do arquivo channels.json
-  const channelsConfigPath = path.resolve("data", "channels.json");
-  const channelsConfig = JSON.parse(fs.readFileSync(channelsConfigPath, "utf8"));
-  const categoryId = channelsConfig.Clan_category;
-
-  if (!categoryId) {
-    throw new Error("ID da categoria do Clan não encontrado em channels.json.");
-  }
-
   try {
+    // Buscar o ID da categoria do Clan no banco de dados
+    const channelConfig = await ChannelConfig.findOne({ serverId: guild.id });
+    if (!channelConfig || !channelConfig.clanCategoryId) {
+      throw new Error("ID da categoria do Clan não encontrado no banco de dados.");
+    }
+
+    const clanCategoryId = channelConfig.clanCategoryId;
+
+    // Buscar a categoria no servidor
+    const clanCategory = guild.channels.cache.get(clanCategoryId);
+    if (!clanCategory) {
+      throw new Error("Categoria do Clan não encontrada no servidor.");
+    }
+
     // Criar o cargo do Clan
     const role = await guild.roles.create({
-      name: formattedName,
+      name: `Clan ${clanName}`,
       mentionable: true,
-      reason: `Cargo criado para o Clan ${clanName}`,
     });
 
     // Criar o canal de texto do Clan
     const textChannel = await guild.channels.create({
-      name: formattedName,
+      name: `clan-${clanName.toLowerCase()}`,
       type: 0, // Canal de texto
-      parent: categoryId, // Definir a categoria
-      reason: `Canal de texto criado para o Clan ${clanName}`,
+      parent: clanCategory.id,
       permissionOverwrites: [
         {
-          id: guild.roles.everyone.id,
-          deny: ['ViewChannel'],
+          id: guild.id, // Todos os membros
+          deny: ["ViewChannel"],
         },
         {
-          id: role.id,
-          allow: ['ViewChannel', 'SendMessages'],
+          id: role.id, // Membros do Clan
+          allow: ["ViewChannel"],
         },
       ],
     });
 
     // Criar o canal de voz do Clan
     const voiceChannel = await guild.channels.create({
-      name: formattedName,
+      name: `Clan ${clanName}`,
       type: 2, // Canal de voz
-      parent: categoryId, // Definir a categoria
-      reason: `Canal de voz criado para o Clan ${clanName}`,
+      parent: clanCategory.id,
       permissionOverwrites: [
         {
-          id: guild.roles.everyone.id,
-          deny: ['ViewChannel'],
+          id: guild.id, // Todos os membros
+          deny: ["ViewChannel"],
         },
         {
-          id: role.id,
-          allow: ['ViewChannel', 'Connect', 'Speak'],
+          id: role.id, // Membros do Clan
+          allow: ["ViewChannel"],
         },
       ],
     });
@@ -122,7 +133,7 @@ export const createClanResources = async (guild, clanName, leaderId) => {
       voiceChannelId: voiceChannel.id,
     };
   } catch (error) {
-    console.error(`[ERRO] Falha ao criar recursos do Clan ${clanName}:`, error);
+    console.error("Erro ao criar os recursos do Clan:", error);
     throw error;
   }
 };
@@ -158,7 +169,7 @@ export const deleteClanResources = async (guild, clanName) => {
   }
 };
 
-export const restoreDeletedClan = (clanName) => {
+export const restoreDeletedClan = async (clanName) => {
   try {
     if (!fs.existsSync(deletedClansFilePath)) {
       console.warn("[WARN] O arquivo deletedClans.json não existe.");
@@ -174,9 +185,9 @@ export const restoreDeletedClan = (clanName) => {
     }
 
     const clan = deletedClans.splice(clanIndex, 1)[0];
-    const clans = loadClans();
+    const clans = await loadClans();
     clans.set(clan.leaderId, clan);
-    saveClans(clans);
+    await saveClans(clans);
 
     fs.writeFileSync(deletedClansFilePath, JSON.stringify(deletedClans, null, 2));
     console.log(`[LOG] Clan "${clanName}" restaurado com sucesso para clans.json.`);
@@ -187,7 +198,7 @@ export const restoreDeletedClan = (clanName) => {
   }
 };
 
-export function saveMemberJoinDate(clans, clanId, memberId) {
+export async function saveMemberJoinDate(clans, clanId, memberId) {
   const clan = clans.get(clanId);
   if (!clan) return;
 
@@ -199,7 +210,7 @@ export function saveMemberJoinDate(clans, clanId, memberId) {
     clan.joinDates[memberId] = new Date().toISOString();
   }
 
-  saveClans(clans);
+  await saveClans(clans);
 }
 
 export const updateClanVoiceChannelName = async (guild, clan) => {

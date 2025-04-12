@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from "discord.js"; // Fixed import
+import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from "discord.js";
 import { loadClans } from "../utils/clanUtils.js";
 
 export default {
@@ -20,7 +20,7 @@ export default {
       });
     }
 
-    const clans = loadClans();
+    const clans = await loadClans(); // Certifique-se de que loadClans retorna um Map
     const clanQuery = interaction.options.getString("clan");
 
     if (!clanQuery) {
@@ -36,12 +36,13 @@ export default {
         .setColor(0xff0000) // Red color
         .setDescription("⚠️ **ADMIN ACCESS** ⚠️\nLista de todos os Clans registrados.");
 
-      clans.forEach((clan) => {
+      // Iterar sobre o Map
+      for (const [leaderId, clan] of clans.entries()) {
         embed.addFields({
           name: `${clan.clanName} [${clan.clanTag}]`,
-          value: `**Líder:** <@${clan.leaderId}>\n**Membros:** ${clan.members.length}\n**Descrição:** ${clan.clanDescription || "Sem descrição"}`,
+          value: `**Líder:** <@${leaderId}>\n**Membros:** ${clan.members.length}\n**Descrição:** ${clan.clanDescription || "Sem descrição"}`,
         });
-      });
+      }
 
       return await interaction.reply({ embeds: [embed] });
     }
@@ -69,23 +70,6 @@ export default {
         { name: "Descrição", value: clanEntry.clanDescription || "Sem descrição", inline: false },
         { name: "Membros", value: `${clanEntry.members.length}`, inline: true }
       );
-
-    const memberDetails = await Promise.all(
-      clanEntry.members.map(async (memberId) => {
-        const member = await interaction.guild.members.fetch(memberId).catch(() => null);
-        const joinDate = clanEntry.joinDates?.[memberId] || "Data desconhecida";
-        const messageCount = clanEntry.messageCounts?.[memberId] || 0;
-
-        return member
-          ? `- **${member.user.tag}** (Entrou: ${joinDate}, Mensagens: ${messageCount})`
-          : `- **ID: ${memberId}** (Membro não encontrado)`;
-      })
-    );
-
-    embed.addFields({
-      name: "Detalhes dos Membros",
-      value: memberDetails.join("\n") || "Nenhum membro encontrado.",
-    });
 
     await interaction.reply({ embeds: [embed] });
   },

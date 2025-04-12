@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, MessageFlags } from "discord.js";
-import { eventos } from "../utils/eventos.js";
+import Evento from "../models/Evento.js"; // Modelo para eventos
 
 export default {
   data: new SlashCommandBuilder()
@@ -63,17 +63,19 @@ export default {
     const testMode = interaction.options.getBoolean("test") || false;
     const membrosFantasmas = interaction.options.getInteger("membros-fantasmas") || 5;
 
-    if (!eventos[tipo]) {
+    // Verifica se o tipo de evento existe no banco de dados
+    const evento = await Evento.findOne({ tipo });
+    if (!evento) {
       return await interaction.reply({
-        content: `⚠️ O tipo de evento "${tipo}" não foi encontrado.`,
-        flags: 64,
+        content: `⚠️ O tipo de evento "${tipo}" não foi encontrado no banco de dados.`,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
     if (!canal.isTextBased()) {
       return await interaction.reply({
         content: "⚠️ O canal selecionado não é válido para eventos.",
-        flags: 64,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -91,15 +93,15 @@ export default {
         content: `✅ Modo de teste ativado. Clans fantasmas criados:\n${fakeClans
           .map((clan) => `- ${clan.clanName} (${clan.members.length} membros)`)
           .join("\n")}`,
-        flags: 64,
+        flags: MessageFlags.Ephemeral,
       });
     } else {
-      await interaction.deferReply({ flags: 64 });
+      await interaction.deferReply({ ephemeral: true });
     }
 
     try {
       // Passar os Clans fantasmas para o evento no modo de teste
-      await eventos[tipo].executar(interaction, canal, pontos, moedas, testMode ? fakeClans : null);
+      await evento.executar(interaction, canal, pontos, moedas, testMode ? fakeClans : null);
 
       if (!testMode) {
         await interaction.editReply({

@@ -17,7 +17,8 @@ export default {
     ),
 
   async execute(interaction) {
-    const clans = loadClans();
+    // Carrega os Clans do banco de dados
+    const clans = await loadClans();
 
     if (clans.size === 0) {
       return await interaction.reply({
@@ -27,6 +28,8 @@ export default {
     }
 
     const rankingType = interaction.options.getString("tipo");
+
+    // Ordena os Clans com base no tipo de ranking
     const sortedClans = Array.from(clans.values()).sort((a, b) => {
       if (rankingType === "pontos") {
         return (b.points || 0) - (a.points || 0);
@@ -35,6 +38,7 @@ export default {
       }
     });
 
+    // Cria a embed para exibir o ranking
     const embed = new EmbedBuilder()
       .setTitle(
         rankingType === "pontos"
@@ -48,6 +52,7 @@ export default {
           : "Os Clans mais bem colocados com base nas moedas acumuladas."
       );
 
+    // Adiciona os Clans ao ranking (máximo de 10)
     sortedClans.slice(0, 10).forEach((clan, index) => {
       embed.addFields({
         name: `${index + 1}. ${clan.clanName} [${clan.clanTag}]`,
@@ -64,6 +69,7 @@ export default {
       iconURL: interaction.client.user.displayAvatarURL(),
     }).setTimestamp();
 
+    // Envia a embed com o ranking
     await interaction.reply({ embeds: [embed] });
   },
 };

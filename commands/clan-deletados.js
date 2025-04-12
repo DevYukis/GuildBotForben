@@ -1,8 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from "discord.js";
-import { readFileSync, existsSync } from "fs";
-import { resolve } from "path";
-
-const deletedClansPath = resolve("data", "deletedClans.json");
+import DeletedClan from "../models/DeletedClan.js"; // Modelo para Clans deletados
 
 export default {
   data: new SlashCommandBuilder()
@@ -17,14 +14,8 @@ export default {
       });
     }
 
-    if (!existsSync(deletedClansPath)) {
-      return await interaction.reply({
-        content: "⚠️ Não há registros de Clans deletados.",
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
-    const deletedClans = JSON.parse(readFileSync(deletedClansPath, "utf-8"));
+    // Busca os Clans deletados no banco de dados
+    const deletedClans = await DeletedClan.find();
 
     if (deletedClans.length === 0) {
       return await interaction.reply({
@@ -40,7 +31,7 @@ export default {
     deletedClans.forEach((clan) => {
       embed.addFields({
         name: clan.clanName,
-        value: `**Tag:** ${clan.clanTag}\n**Deletado em:** ${clan.deletedAt || "Data desconhecida"}`,
+        value: `**Tag:** ${clan.clanTag}\n**Deletado em:** ${new Date(clan.deletedAt).toLocaleDateString("pt-BR") || "Data desconhecida"}`,
       });
     });
 

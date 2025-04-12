@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { saveChannelConfig } from "../../utils/channelUtils.js";
 
 export const setClanCategory = async (interaction) => {
   if (!interaction.member.permissions.has("Administrator")) {
@@ -20,26 +21,19 @@ export const setClanCategory = async (interaction) => {
     });
   }
 
-  // Atualizar o arquivo channels.json
-  const channelsFilePath = path.resolve("data", "channels.json");
-  let channelsConfig = {};
-
-  if (fs.existsSync(channelsFilePath)) {
-    channelsConfig = JSON.parse(fs.readFileSync(channelsFilePath, "utf8"));
-  }
-
-  channelsConfig.Clan_category = categoryId;
-
   try {
-    fs.writeFileSync(channelsFilePath, JSON.stringify(channelsConfig, null, 2));
+    // Salvar a categoria no banco de dados
+    const serverId = interaction.guild.id;
+    await saveChannelConfig(serverId, { clanCategoryId: categoryId });
+
     return await interaction.reply({
       content: `✅ Categoria definida com sucesso! Os canais do Clan serão criados na categoria **${category.name}**.`,
       flags: 64,
     });
   } catch (error) {
-    console.error("[ERRO] Não foi possível salvar o arquivo channels.json:", error);
+    console.error("[ERRO] Não foi possível salvar a configuração da categoria no banco de dados:", error);
     return await interaction.reply({
-      content: "⚠️ Ocorreu um erro ao salvar a configuração da categoria.",
+      content: "⚠️ Ocorreu um erro ao salvar a configuração da categoria no banco de dados.",
       flags: 64,
     });
   }

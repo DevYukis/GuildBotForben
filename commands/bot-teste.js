@@ -9,6 +9,21 @@ import {
 } from "../utils/clanUtils.js";
 import fs from "fs";
 
+export const saveClans = (clans) => {
+  const clansPath = "data/clans.json";
+  const clansObject = Object.fromEntries(clans); // Converte o Map para um objeto
+  fs.writeFileSync(clansPath, JSON.stringify(clansObject, null, 2));
+};
+
+export const loadClans = () => {
+  const clansPath = "data/clans.json";
+  if (!fs.existsSync(clansPath)) {
+    return new Map(); // Retorna um Map vazio se o arquivo não existir
+  }
+  const clansData = JSON.parse(fs.readFileSync(clansPath, "utf-8"));
+  return new Map(Object.entries(clansData)); // Converte o objeto para um Map
+};
+
 export default {
   data: new SlashCommandBuilder()
     .setName("bot-teste")
@@ -42,8 +57,17 @@ export default {
         textChannelId: "test_text_channel_id",
         voiceChannelId: "test_voice_channel_id",
       };
-      clans.set(testClanId, testClan);
-      saveClans(clans);
+
+      if (!(clans instanceof Map)) {
+        // Converte o objeto para um Map, se necessário
+        const clansMap = new Map(Object.entries(clans));
+        clansMap.set(testClanId, testClan);
+        saveClans(clansMap); // Salva o Map diretamente
+      } else {
+        clans.set(testClanId, testClan);
+        saveClans(clans);
+      }
+
       const reloadedClans = loadClans();
       if (!reloadedClans.has(testClanId)) {
         throw new Error("Falha ao salvar ou carregar Clans.");

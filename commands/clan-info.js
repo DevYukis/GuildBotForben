@@ -7,7 +7,7 @@ export default {
     .setDescription("Exibe informações sobre o Clan do usuário."),
 
   async execute(interaction) {
-    const clans = loadClans();
+    const clans = await loadClans(); // Certifique-se de usar await para resolver a Promise
     const userId = interaction.user.id;
 
     // Verifica se o usuário pertence a algum Clan
@@ -41,7 +41,7 @@ export default {
         { name: "Moedas", value: `**${clan.coins || 0}**`, inline: true },
         { name: "Posição no Ranking", value: `**#${rankPosition}**`, inline: true },
         { name: "Membros", value: `**${clan.members.length}**`, inline: true },
-        { name: "Data de Criação", value: `**${clan.creationDate || "Desconhecida"}**`, inline: false }
+        { name: "Data de Criação", value: `**${new Date(clan.creationDate).toLocaleDateString("pt-BR") || "Desconhecida"}**`, inline: false }
       )
       .setFooter({ text: "Sistema de Clans", iconURL: interaction.client.user.displayAvatarURL() })
       .setTimestamp();

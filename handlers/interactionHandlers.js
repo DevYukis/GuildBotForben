@@ -11,8 +11,31 @@ import {
   ButtonStyle,
   EmbedBuilder,
 } from "discord.js";
+import Clan from "../models/Clan.js"; // Importa o modelo Clan para interações diretas com o banco de dados
+import DeletedClan from "../models/DeletedClan.js"; // Importa o modelo DeletedClan para interações diretas com o banco de dados
 
-const clans = loadClans();
+// Atualizar os nomes dos canais ao editar o Clan
+export const updateClanResources = async (guild, clan) => {
+  const formattedName = `《👥》${clan.clanName}`; // Adiciona o prefixo ao nome do Clan
+
+  // Atualizar o nome do cargo
+  const role = guild.roles.cache.get(clan.roleId);
+  if (role) {
+    await role.setName(formattedName);
+  }
+
+  // Atualizar o nome do canal de texto
+  const textChannel = guild.channels.cache.get(clan.textChannelId);
+  if (textChannel) {
+    await textChannel.setName(formattedName);
+  }
+
+  // Atualizar o nome do canal de voz
+  const voiceChannel = guild.channels.cache.get(clan.voiceChannelId);
+  if (voiceChannel) {
+    await voiceChannel.setName(formattedName);
+  }
+};
 
 export const handleInteraction = async (interaction) => {
   // Verifica se a interação é válida
@@ -20,6 +43,9 @@ export const handleInteraction = async (interaction) => {
     console.warn("Interação ignorada: tipo não suportado ou inválido.");
     return;
   }
+
+  // Carregar os Clans do banco de dados
+  const clans = await loadClans(); // Certifique-se de usar await para resolver a Promise
 
   // Verifica se a interação é do tipo esperado
   if (!interaction.isButton() && !interaction.isStringSelectMenu() && !interaction.isModalSubmit()) {
@@ -38,7 +64,8 @@ export const handleInteraction = async (interaction) => {
 
   if (interaction.isButton()) {
     if (interaction.customId === "create_clan_button") {
-      if (clans.has(userId)) {
+      const existingClan = await Clan.findOne({ leaderId: userId });
+      if (existingClan) {
         return await interaction.reply({
           content: "⚠️ Você já é dono de um Clan! Edite ou exclua o Clan existente antes de criar outro.",
           flags: 64,
@@ -55,18 +82,11 @@ export const handleInteraction = async (interaction) => {
       }
       return await interaction.showModal(modal);
     } else if (interaction.customId === "edit_clan_button") {
-      if (!clans.has(userId)) {
+      const clan = await Clan.findOne({ leaderId: userId });
+
+      if (!clan) {
         return await interaction.reply({
           content: "⚠️ Você não é dono de nenhum Clan para editar.",
-          flags: 64,
-        });
-      }
-
-      const clan = clans.get(userId);
-
-      if (!clan || !clan.clanName || !clan.clanTag || !clan.clanDescription) {
-        return await interaction.reply({
-          content: "⚠️ O Clan não possui informações válidas para edição.",
           flags: 64,
         });
       }
@@ -82,7 +102,9 @@ export const handleInteraction = async (interaction) => {
 
       return await interaction.showModal(modal);
     } else if (interaction.customId === "delete_clan_button") {
-      if (!clans.has(userId)) {
+      const clan = await Clan.findOne({ leaderId: userId });
+
+      if (!clan) {
         return await interaction.reply({
           content: "⚠️ Você não é dono de nenhum Clan para excluir.",
           flags: 64,
@@ -132,8 +154,7 @@ export const handleInteraction = async (interaction) => {
         }
       }
 
-      const clans = loadClans(); // Carregar os Clans do armazenamento
-      const clan = clans.get(leaderId); // Buscar o Clan pelo ID do líder
+      const clan = await Clan.findOne({ leaderId });
 
       if (!clan) {
         if (!interaction.replied && !interaction.deferred) {
@@ -152,7 +173,7 @@ export const handleInteraction = async (interaction) => {
 
       if (!clan.members.includes(memberId)) {
         clan.members.push(memberId);
-        saveClans(clans);
+        await clan.save();
 
         // Remover o convite após ser aceito
         invites.delete(interaction.customId);
@@ -205,7 +226,7 @@ export const handleInteraction = async (interaction) => {
         flags: 64,
       });
     } else if (interaction.customId === "edit_members_button") {
-      const clan = Array.from(clans.values()).find((clan) => clan.leaderId === userId);
+      const clan = await Clan.findOne({ leaderId: userId });
       if (!clan) {
         return await interaction.reply({
           content: "⚠️ Você não é líder de nenhum Clan para gerenciar membros.",
@@ -287,7 +308,8 @@ export const handleInteraction = async (interaction) => {
         });
       }
 
-      if (clans.has(interaction.user.id)) {
+      const existingClan = await Clan.findOne({ leaderId: userId });
+      if (existingClan) {
         return await interaction.reply({
           content: "⚠️ Você já possui um Clan. Edite ou exclua o existente antes de criar outro.",
           flags: 64,
@@ -310,7 +332,7 @@ export const handleInteraction = async (interaction) => {
           await leader.roles.add(roleId);
         }
 
-        const newClan = {
+        const newClan = new Clan({
           leaderId: interaction.user.id,
           clanName,
           clanTag,
@@ -319,10 +341,9 @@ export const handleInteraction = async (interaction) => {
           roleId,
           textChannelId,
           voiceChannelId,
-        };
+        });
 
-        clans.set(interaction.user.id, newClan);
-        saveClans(clans);
+        await newClan.save();
 
         return await interaction.reply({
           content: `✅ Clan **${clanName}** criado com sucesso! Um canal, um cargo e um canal de voz foram criados. O cargo foi atribuído a você.`,
@@ -339,7 +360,7 @@ export const handleInteraction = async (interaction) => {
 
     if (interaction.customId === "add_member_modal") {
       const memberInput = interaction.fields.getTextInputValue("member_name_input"); // Entrada do usuário
-      const clan = Array.from(clans.values()).find((clan) => clan.leaderId === userId);
+      const clan = await Clan.findOne({ leaderId: userId });
 
       if (!clan) {
         return await interaction.reply({
@@ -445,7 +466,7 @@ export const handleInteraction = async (interaction) => {
         let clanTag = interaction.fields.getTextInputValue("clan_tag_input");
         let clanDescription = interaction.fields.getTextInputValue("clan_description_input");
 
-        const clan = clans.get(userId);
+        const clan = await Clan.findOne({ leaderId: userId });
         if (!clan) {
           return await interaction.editReply({
             content: "⚠️ Ocorreu um erro ao editar o Clan. Clan não encontrado.",
@@ -453,34 +474,15 @@ export const handleInteraction = async (interaction) => {
         }
 
         const guild = interaction.guild;
-        const formattedName = `《👥》${clanName}`;
 
-        // Atualizar o nome do cargo
-        const role = guild.roles.cache.get(clan.roleId);
-        if (role) {
-          await role.setName(formattedName);
-        }
-
-        // Atualizar o nome do canal de texto
-        const textChannel = guild.channels.cache.get(clan.textChannelId);
-        if (textChannel) {
-          await textChannel.setName(formattedName);
-        }
-
-        // Atualizar o nome do canal de voz
-        const voiceChannel = guild.channels.cache.get(clan.voiceChannelId);
-        if (voiceChannel) {
-          await voiceChannel.setName(formattedName);
-        }
+        // Atualizar os recursos do Clan usando a função utilitária
+        await updateClanResources(guild, clan);
 
         // Atualizar os dados do clan
         clan.clanName = clanName;
         clan.clanTag = clanTag;
         clan.clanDescription = clanDescription;
-        saveClans(clans);
-
-        // Atualizar o nome do canal de voz usando a função utilitária
-        await updateClanVoiceChannelName(guild, clan);
+        await clan.save();
 
         await interaction.editReply({
           content: `✅ Clan **${clanName}** editado com sucesso! O nome do canal de texto, canal de voz e do cargo foram atualizados.`,
@@ -494,17 +496,19 @@ export const handleInteraction = async (interaction) => {
         }
       }
     } else if (interaction.customId === "delete_clan_modal") {
-      if (!clans.has(userId)) {
+      const userId = interaction.user.id;
+
+      // Verificar se o Clan existe no banco de dados
+      const clan = await Clan.findOne({ leaderId: userId });
+
+      if (!clan) {
         return await interaction.reply({
-          content: "⚠️ Ocorreu um erro ao excluir o Clan. Clan não encontrado.",
+          content: "⚠️ Ocorreu um erro ao excluir o Clan. Clan não encontrado no banco de dados.",
           flags: 64,
         });
       }
 
-      const clan = clans.get(userId);
-
       try {
-        // Excluir os recursos do Clan (canais e cargo)
         const guild = interaction.guild;
 
         // Excluir o canal de texto
@@ -531,9 +535,24 @@ export const handleInteraction = async (interaction) => {
           });
         }
 
-        // Remover o Clan do armazenamento
-        clans.delete(userId);
-        saveClans(clans);
+        // Salvar o Clan deletado no banco de dados (opcional)
+        await DeletedClan.create({
+          clanName: clan.clanName,
+          clanTag: clan.clanTag,
+          clanDescription: clan.clanDescription,
+          members: clan.members,
+          leaderId: clan.leaderId,
+          roleId: clan.roleId,
+          textChannelId: clan.textChannelId,
+          voiceChannelId: clan.voiceChannelId,
+          points: clan.points,
+          coins: clan.coins,
+          creationDate: clan.creationDate,
+          deletedAt: new Date(),
+        });
+
+        // Remover o Clan do banco de dados
+        await Clan.deleteOne({ leaderId: userId });
 
         return await interaction.reply({
           content: "✅ Seu Clan foi excluído com sucesso! Todos os recursos associados foram removidos.",
@@ -548,7 +567,7 @@ export const handleInteraction = async (interaction) => {
       }
     } else if (interaction.customId === "remove_member_modal") {
       const memberInput = interaction.fields.getTextInputValue("member_id_input"); // Entrada do usuário
-      const clan = Array.from(clans.values()).find((clan) => clan.leaderId === userId);
+      const clan = await Clan.findOne({ leaderId: userId });
 
       if (!clan) {
         return await interaction.reply({
@@ -607,7 +626,7 @@ export const handleInteraction = async (interaction) => {
         // Remover o cargo do membro
         await member.roles.remove(role);
         clan.members = clan.members.filter((id) => id !== member.id);
-        saveClans(clans);
+        await clan.save();
 
         // Enviar DM para o membro informando que ele foi removido
         await member.send(`⚠️ Você foi removido do Clan **${clan.clanName}**.`);

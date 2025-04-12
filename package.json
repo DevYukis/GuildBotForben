@@ -10,6 +10,7 @@
   "dependencies": {
     "discord.js": "^14.18.0",
     "dotenv": "^16.0.0",
-    "guild-bot": "file:"
+    "guild-bot": "file:",
+    "mongoose": "^8.13.2"
   }
 }
