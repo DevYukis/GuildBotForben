@@ -95,7 +95,7 @@ export const createClanResources = async (guild, clanName, leaderId) => {
 
     // Criar o canal de texto do Clan
     const textChannel = await guild.channels.create({
-      name: `clan-${clanName.toLowerCase()}`,
+      name: `《👥》${clanName.toLowerCase()}`,
       type: 0, // Canal de texto
       parent: clanCategory.id,
       permissionOverwrites: [
@@ -112,7 +112,7 @@ export const createClanResources = async (guild, clanName, leaderId) => {
 
     // Criar o canal de voz do Clan
     const voiceChannel = await guild.channels.create({
-      name: `Clan ${clanName}`,
+      name: `《👥》${clanName}`,
       type: 2, // Canal de voz
       parent: clanCategory.id,
       permissionOverwrites: [
